@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: openai-status-tracker
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python monitor.py --web
+    plan: free
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
