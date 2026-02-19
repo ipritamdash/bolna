@@ -8,7 +8,7 @@ import random
 import signal
 import sys
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 import aiohttp
 from aiohttp import web
@@ -22,13 +22,28 @@ DEFAULT_INTERVAL = 30
 MAX_BACKOFF = 300
 
 INDEX_PAGE = """<!DOCTYPE html>
-<html><body style="font-family:monospace;padding:20px">
-<h3>status monitor</h3>
-<pre id="log"></pre>
+<html><head><title>Status Tracker</title></head>
+<body style="margin:0;background:#0d1117;color:#c9d1d9;font-family:ui-monospace,monospace;font-size:14px">
+<div style="max-width:900px;margin:0 auto;padding:24px">
+<h2 style="color:#58a6ff;margin-bottom:4px">status tracker</h2>
+<p id="status" style="color:#8b949e;margin-top:0">connecting...</p>
+<div id="log" style="border:1px solid #30363d;border-radius:6px;padding:16px;min-height:200px"></div>
+</div>
 <script>
 const log = document.getElementById("log");
+const status = document.getElementById("status");
+let count = 0;
 const es = new EventSource("/events");
-es.onmessage = e => { log.textContent = e.data + "\\n" + log.textContent; };
+es.onopen = () => { status.textContent = "connected — streaming updates"; status.style.color = "#3fb950"; };
+es.onmessage = e => {
+    count++;
+    status.textContent = count + " event" + (count === 1 ? "" : "s") + " received";
+    const pre = document.createElement("pre");
+    pre.style.cssText = "margin:0;padding:10px 12px;border-bottom:1px solid #21262d;white-space:pre-wrap";
+    pre.textContent = e.data;
+    log.prepend(pre);
+};
+es.onerror = () => { status.textContent = "connection lost, reconnecting..."; status.style.color = "#f85149"; };
 </script></body></html>"""
 
 
@@ -50,6 +65,7 @@ class Monitor:
         self._page_ts = {}
         self._comp_state = {}
         self._subscribers = []
+        self._event_log = []
         self._running = True
 
     async def run(self, web_port=None):
@@ -203,6 +219,11 @@ class Monitor:
             print(line)
             print()
 
+            # buffer for SSE replay to late-joining clients
+            self._event_log.append(line)
+            if len(self._event_log) > 50:
+                self._event_log = self._event_log[-50:]
+
             for sub in list(self._subscribers):
                 try:
                     sub.put_nowait(line)
@@ -213,6 +234,7 @@ class Monitor:
         app = web.Application()
         app.router.add_get("/", self._web_index)
         app.router.add_get("/events", self._web_sse)
+        app.router.add_get("/health", self._web_health)
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(runner, "0.0.0.0", port)
@@ -222,12 +244,23 @@ class Monitor:
     async def _web_index(self, req):
         return web.Response(text=INDEX_PAGE, content_type="text/html")
 
+    async def _web_health(self, req):
+        return web.json_response({
+            "status": "ok",
+            "providers": len(self.providers),
+            "events_buffered": len(self._event_log),
+        })
+
     async def _web_sse(self, req):
         resp = web.StreamResponse()
         resp.headers["Content-Type"] = "text/event-stream"
         resp.headers["Cache-Control"] = "no-cache"
         resp.headers["X-Accel-Buffering"] = "no"
         await resp.prepare(req)
+
+        # replay recent events so late-joining clients aren't staring at a blank page
+        for old in self._event_log:
+            await resp.write(f"data: {old}\n\n".encode())
 
         q = asyncio.Queue(maxsize=50)
         self._subscribers.append(q)
