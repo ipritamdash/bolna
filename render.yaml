@@ -5,6 +5,7 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python monitor.py --web
     plan: free
+    healthCheckPath: /
     envVars:
       - key: PYTHON_VERSION
-        value: "3.11"
+        value: "3.11.0"
