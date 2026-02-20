@@ -124,7 +124,7 @@ class Monitor:
                             for i in incidents
                         }
 
-            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
                 print(f"[warn] {name}: {e}", file=sys.stderr)
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, MAX_BACKOFF)
@@ -191,7 +191,7 @@ class Monitor:
 
                     self._comp_state[name] = current
 
-            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
                 print(f"[warn] {name} components: {e}", file=sys.stderr)
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, MAX_BACKOFF)
