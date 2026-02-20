@@ -171,6 +171,24 @@ class Monitor:
                                 timestamp=_fmt_ts(comp.get("updated_at", "")),
                             ))
 
+                    # on first poll, emit a startup summary so the page isn't blank
+                    if not prev and current:
+                        degraded = [c for c in data.get("components", []) if c["status"] != "operational"]
+                        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                        if degraded:
+                            for c in degraded:
+                                self._queue.put_nowait(StatusEvent(
+                                    provider=name, product=c["name"],
+                                    message=c["status"].replace("_", " "),
+                                    timestamp=_fmt_ts(now),
+                                ))
+                        else:
+                            self._queue.put_nowait(StatusEvent(
+                                provider=name, product="all services",
+                                message=f"{len(current)} components operational",
+                                timestamp=_fmt_ts(now),
+                            ))
+
                     self._comp_state[name] = current
 
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
