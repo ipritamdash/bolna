@@ -278,14 +278,14 @@ class Monitor:
 
         # replay recent events so late-joining clients aren't staring at a blank page
         for old in self._event_log:
-            await resp.write(f"data: {old}\n\n".encode())
+            await _sse_write(resp, old)
 
         q = asyncio.Queue(maxsize=50)
         self._subscribers.append(q)
         try:
             while True:
                 data = await q.get()
-                await resp.write(f"data: {data}\n\n".encode())
+                await _sse_write(resp, data)
         except (ConnectionResetError, asyncio.CancelledError):
             pass
         finally:
@@ -294,6 +294,13 @@ class Monitor:
 
     def stop(self):
         self._running = False
+
+
+async def _sse_write(resp, text):
+    """SSE spec requires each line of a multi-line message to carry its own data: prefix."""
+    for part in text.split("\n"):
+        await resp.write(f"data: {part}\n".encode())
+    await resp.write(b"\n")
 
 
 def _fmt_ts(raw):
